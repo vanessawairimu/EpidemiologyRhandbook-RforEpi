@@ -1,0 +1,278 @@
+---
+title: "Cleaning data and core functions"
+author: "Vanessa"
+date: "2026-09-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r}
+# beginning 
+
+install.packages(c("dplyr", "janitor"))
+library(dplyr)
+library(janitor)
+linelist <- clean_names(linelist)
+names(linelist)   # check the result
+
+```
+
+```{r}
+#the core dplyr verbs 
+#select() - keeps only certain columns
+linelist_small <- linelist %>% select(case_id, age, gender, outcome)
+View(linelist_small)
+#filter - keeps only certain rowns based on a condition
+adults <- linelist %>% filter(age >= 18)
+survivors <- linelist %>% filter(outcome == "Recovered")
+View(adults)
+#mutate() - create or change a column
+linelist <- linelist %>% mutate(age_months = age * 12)
+#rename() - rename a specific column 
+linelist <- linelist %>% rename(patient_age = age)
+names(linelist)
+#arrange() - sort rows 
+linelist %>% arrange(age)          # ascending
+linelist %>% arrange(desc(age))    # descending
+rm(age, patient_id, outcome)
+names(linelist)
+linelist %>% arrange(age_years)   # replace with whatever the real column is called
+linelist <- linelist %>% rename(sex = gender)
+rm(age, patient_id, outcome)
+table(linelist$age_unit)
+```
+
+```{r}
+# chain them together with the pipe 
+clean_result <- linelist %>%
+  clean_names() %>%
+  filter(age_years >= 18) %>%
+  select(case_id, age_years, sex, outcome) %>%
+  arrange(desc(age_years))
+names(linelist)
+head(clean_result)
+View(clean_result)
+```
+
+```{r}
+# count duplicate rows
+sum(duplicated(linelist))
+# remove them
+linelist <- linelist %>% distinct()
+
+#count NAs per column
+colSums(is.na(linelist))
+# see rows with any missing values
+linelist %>% filter(if_any(everything(), is.na))
+```
+
+```{r}
+#recording values with case_when() - converts coded/messy values into clean categories.
+
+linelist <- linelist %>%
+  mutate(age_group_simple = case_when(
+    age_years < 18            ~ "Child",
+    age_years >= 18 & age_years < 65 ~ "Adult",
+    age_years >= 65            ~ "Elderly",
+    TRUE                        ~ NA_character_   # anything unmatched becomes NA
+  ))
+
+table(linelist$age_group_simple)
+
+#recording text values - fixing inconsistent categories.
+linelist <- linelist %>%
+  mutate(sex = case_when(
+    sex %in% c("m", "M", "male", "Male") ~ "Male",
+    sex %in% c("f", "F", "female", "Female") ~ "Female",
+    TRUE ~ sex   # leave anything else unchanged
+  ))
+
+table(linelist$sex)
+
+class(linelist$date_onset)
+
+install.packages("lubridate")
+
+library(lubridate)   # install.packages("lubridate") if needed
+
+linelist <- linelist %>%
+  mutate(date_onset = ymd(date_onset))  # ymd = year-month-day format
+linelist <- linelist %>%
+  mutate(days_to_hospitalisation = date_hospitalisation - date_onset)
+summary(linelist$days_to_hospitalisation)
+View(linelist$days_to_hospitalisation)
+linelist %>% tabyl(sex)
+linelist %>% tabyl(sex, outcome)
+```
+
+```{r}
+#working with dates 
+install.packages(c("lubridate", "dplyr", "ggplot2"))
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(rio)
+library(here)
+linelist <- import(here("data", "linelists", "linelist_cleaned.xlsx"), which = "Sheet 1")
+name(linelist)
+class(linelist$date_onset)
+linelist <- linelist %>%
+  mutate(date_onset = ymd(date_onset))    # "2014-05-01" style (year-month-day)
+
+# other common formats:
+# dmy("01-05-2014")   # day-month-year
+# mdy("05-01-2014")   # month-day-year
+today()   # current date
+now()     # current date + time
+linelist <- linelist %>%
+  mutate(
+    onset_year  = year(date_onset),
+    onset_month = month(date_onset, label = TRUE),   # gives "Jan", "Feb", etc.
+    onset_day   = day(date_onset),
+    onset_wday  = wday(date_onset, label = TRUE)      # day of week, e.g. "Mon"
+  )
+linelist <- linelist %>%
+  mutate(onset_week = floor_date(date_onset, unit = "week"))
+names(linelist)
+linelist <- linelist %>%
+  mutate(days_to_hosp = as.numeric(date_hospitalisation - date_onset))
+
+summary(linelist$days_to_hosp)
+class(linelist$date_onset)
+class(linelist$date_hospitalisation)
+linelist <- linelist %>%
+  mutate(date_hospitalisation = as.Date(date_hospitalisation))
+linelist <- linelist %>%
+  mutate(date_onset = as.Date(date_onset))
+# now redo the subtraction
+linelist <- linelist %>%
+  mutate(days_to_hosp = as.numeric(date_hospitalisation - date_onset))
+
+summary(linelist$days_to_hosp)
+```
+```{r}
+#Grouping and summarizing data. group_by(), summarise()
+linelist %>%
+  group_by(outcome) %>%
+  summarise(count = n())
+#multiple summaries at once.
+linelist %>%
+  group_by(outcome) %>%
+  summarise(
+    count = n(),
+    mean_age = mean(age_years, na.rm = TRUE),
+    median_age = median(age_years, na.rm = TRUE)
+  )
+#grouping by more  than one variable 
+linelist %>%
+  group_by(outcome, gender) %>%
+  summarise(count = n())
+names(linelist)
+# count(), a short cut when you just want frequency
+linelist %>% count(outcome)
+linelist %>% count(outcome, gender)
+# janitor::tabyl()- with % , load janitor first
+library(janitor)
+linelist %>% tabyl(outcome)
+linelist %>% tabyl(gender, outcome)
+
+#sort by size
+linelist %>%
+  count(hospital) %>%
+  arrange(desc(n))
+here()
+linelist <- import(here("data", "linelists", "linelist_cleaned.xlsx"), which = "Sheet 1")
+
+#reapplying cleaning steps lost due to restart
+linelist <- linelist %>% clean_names()
+linelist <- linelist %>% rename(sex = gender)
+
+linelist <- linelist %>%
+  mutate(sex = case_when(
+    sex %in% c("m", "M", "male", "Male") ~ "Male",
+    sex %in% c("f", "F", "female", "Female") ~ "Female",
+    TRUE ~ sex
+  ))
+
+linelist <- linelist %>%
+  mutate(age_group_simple = case_when(
+    age_years < 18 ~ "Child",
+    age_years >= 18 & age_years < 65 ~ "Adult",
+    age_years >= 65 ~ "Elderly",
+    TRUE ~ NA_character_
+  ))
+
+linelist <- linelist %>%
+  mutate(date_hospitalisation = as.Date(date_hospitalisation))
+
+linelist <- linelist %>%
+  mutate(days_to_hosp = as.numeric(date_hospitalisation - date_onset))
+names(linelist)
+```
+
+```{r}
+#Epidemiological weeks - follow a std numbering system starting Sunday, used for outbreak reporting/surveillance.
+linelist <- linelist %>%
+  mutate(epiweek_onset = epiweek(date_onset))
+table(linelist$epiweek_onset)
+format(Sys.Date(), "%d %B %Y")     # "22 September 2026"
+format(Sys.Date(), "%B %d, %Y")    # "September 22, 2026"
+format(Sys.Date(), "%A, %d %b %y") # "Tuesday, 22 Sep 26"
+linelist <- linelist %>%
+  mutate(date_onset_label = format(date_onset, "%d %b %Y"))
+linelist %>% mutate(test_date = as.Date(41780, origin = "1899-12-30"))
+test <- ymd("2014-13-45")   # invalid month/day  that dont respond to a real calender day.
+#logially imporsible dates, valid calender dates but nonsensical order - date of hospitilization before symptoms onset.
+linelist %>%
+  filter(date_hospitalisation < date_onset) %>%
+  select(case_id, date_onset, date_hospitalisation)
+d1 <- ymd("2024-01-01")
+d2 <- ymd("2024-03-01")
+# durations, periods and intervals - three distint lubridate concepts.
+as.duration(d2 - d1)     # exact time elapsed, in seconds (also shows ~weeks)
+d2 - years(0) - months(2) - days(0)  # subtracting a "period" - calendar-aware
+interval(d1, d2)         # represents the span itself, as a start/end object
+my_interval <- interval(ymd("2014-06-01"), ymd("2014-08-31"))
+ymd("2014-07-15") %within% my_interval   # TRUE
+View(my_interval)
+
+# Epidemic curve,
+#aes- aesthetic mapping- tells ggplot the x position, ypos and color/fill
+# geom_col() - the shape that actually gets drawn using data from aes, geom_col specifically draws bars whose height comes directly from a value already calculated.
+# labs for labels sets the title and axis labels 
+library(ggplot2)
+
+linelist %>%
+  count(epiweek_onset) %>%
+  ggplot(aes(x = epiweek_onset, y = n)) +
+  geom_col() +
+  labs(
+    title = "Epidemic curve by epidemiological week",
+    x = "Epi week",
+    y = "Number of cases"
+  )
+```
